@@ -1,0 +1,477 @@
+# Importing all the relevant modules
+import streamlit as st
+import os
+import json
+import requests
+import time
+from openai import OpenAI
+from openai.types.beta import Assistant
+from openai.types.beta.thread import Thread
+from openai.types.beta.threads.run import Run
+from openai.types.beta.threads.thread_message import ThreadMessage
+from PIL import Image
+from IPython.display import Image, display
+
+from dotenv import load_dotenv, find_dotenv
+load_dotenv()
+
+# This is to make sure that all environment variables are loaded
+_: bool = load_dotenv(find_dotenv())
+
+st.title("Financial Assistant")
+st.write("---")
+
+# This is the creation of the client
+client: OpenAI = OpenAI()
+# Getting the key to the financial prep model
+FMP_API_KEY = os.environ["API_KEY"]
+API_KEY = os.environ["OPENAI_API_KEY"]
+# This is all dealing with storing and displaying the messages on the front-end
+if "openai_model" not in st.session_state:
+    st.session_state["openai_model"] = "gpt-3.5-turbo-1106"
+# Initializing Chat History
+
+if "conversation" not in st.session_state:
+    st.session_state.conversation = []
+if "thread_id" not in st.session_state:
+    st.session_state.thread_id = None
+# Displaying the messages in chat history:
+
+for message in st.session_state.conversation:
+    with st.chat_message(message["role"]):
+        st.write(message["content"])
+
+# Now the code to create the assistant one by one
+
+# Step 1: Defining all the functions to access
+# Function Number : 1
+
+
+def get_financial_statements(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/cik-search/{symbol}?&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+
+# Function Number : 2
+
+
+def get_financial_ratios(symbol: str) -> str | dict | None:
+
+    url: str = f"https://financialmodelingprep.com/api/v3/ratios/{symbol}?&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+
+# Function Number : 3
+
+
+def get_key_metrics(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/key-metrics/{symbol}?&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+
+# Function Number : 4
+
+
+def get_financial_growth(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/search?query={symbol}&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+
+# Function Number : 5
+
+
+def get_company_profile(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/profile/{symbol}?&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+# Function Number : 6
+
+
+def get_income_statements(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/income-statement/{symbol}?period=annual&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+# Function Number : 7
+
+
+def get_balance_sheet(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/balance-sheet-statement/{symbol}?period=annual&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+# Function Number : 8
+
+
+def get_cash_flow(symbol: str) -> str | dict | None:
+    url: str = f"https://financialmodelingprep.com/api/v3/cash-flow-statement/{symbol}?period=annual&apikey={FMP_API_KEY}"
+    try:
+        response = requests.get(url)
+        return json.dumps(response.json())
+    except:
+        return json.dumps({"response": "Apologies,I could not access the requested information"})
+
+
+# Step 2 : Map your functions
+available_functions = {
+    "get_financial_statements": get_financial_statements,
+    "get_financial_ratios": get_financial_ratios,
+    "get_key_metrics": get_key_metrics,
+    "get_financial_growth": get_financial_growth,
+    "get_company_profile": get_company_profile,
+    "get_income_statements": get_income_statements,
+    "get_balance_sheet": get_balance_sheet,
+    "get_cash_flow": get_cash_flow
+
+}
+
+
+# Downloading and saving the image
+
+def download_and_save_image(file_id: str, save_path: str) -> None:
+    download_url = f"https://api.openai.com/v1/files/{file_id}/content"
+    response = requests.get(
+        download_url, headers={"Authorization": f"Bearer {API_KEY}"}
+    )
+    if response.status_code == 200:
+        with open(save_path, "wb") as file:
+            file.write(response.content)
+    else:
+        print(f"Image downloading failed: Status Code {response.status_code}")
+# Step 3: Create an assistant and report functions
+
+
+def show_json(message, obj):
+    print(message, json.loads(obj.model_dump_json()))
+
+
+# Step 4 : Make an assistant
+
+assistant: Assistant = client.beta.assistants.create(
+    instructions="""
+        Act as a financial analyst by accessing detailed financial data through the Financial Modeling Prep API. 
+        Your capabilities include analyzing key metrics, comprehensive financial statements, 
+        vital financial ratios, and tracking financial growth trends. """,
+    model="gpt-3.5-turbo-1106",
+    tools=[
+        {"type": "code_interpreter"},
+        {
+
+            "type": "function",
+            "function": {
+                "name": "get_financial_statements",
+                "description": "Get the financial statement of a company",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_financial_ratios",
+                "description": "Get the financial ratios of a company",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_key_metrics",
+                "description": "Get the key metrics of a company",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_financial_growth",
+                "description": "Get information about the financial growth of a company",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_company_profile",
+                "description": "Get information about the overall financial status of a company across different areas",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_income_statements",
+                "description": "provides access to real-time income statement data for a wide range of companies, including public companies",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_balance_sheet",
+                "description": "a financial statement that displays a company’s total assets, liabilities, and shareholder equity over a specific timeframe (quarterly or yearly).",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        },
+        {
+            "type": "function",
+            "function": {
+                "name": "get_cash_flow",
+                "description": "a financial statement that highlights how cash moves through the company, including both cash inflows and outflows",
+                "parameters": {
+                    "type": "object",
+                    "properties": {
+                        "symbol": {"type": "string", "description": "The name or abbreviation of the company,one wants to know about"}
+
+                    },
+                    "required": ["symbol"]
+                }
+            }
+        }]
+)
+
+# Step 5 : Create a Thread
+thread: Thread = client.beta.threads.create()
+st.session_state.thread_id = thread.id
+
+# print(thread)
+
+# Accept User input
+if prompt := st.chat_input("Hi,what's up?"):
+    # Adding that message to chat history
+    st.session_state.conversation.append({"role": "user", "content": prompt})
+    # Display user message in a container
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Dsiplay Assistant response in chat message container:
+
+    # Message added to the thread
+    message = client.beta.threads.messages.create(
+        thread_id=thread.id,
+        role="user",
+        content=prompt
+    )
+    # Running the thread
+    run: Run = client.beta.threads.runs.create(
+        thread_id=thread.id,
+        assistant_id=assistant.id
+    )
+    dict(run)
+
+    # The loop to retrieve data
+
+  # Loop until the run completes or requires action
+    while True:
+        runStatus = client.beta.threads.runs.retrieve(thread_id=thread.id,
+                                                      run_id=run.id)
+        # Add run steps retrieval here for debuging
+        run_steps = client.beta.threads.runs.steps.list(
+            thread_id=thread.id, run_id=run.id)
+        # show_json("Run Steps:", run_steps)
+        print(runStatus.status, '.....')
+
+        # This means run is making a function call
+        if runStatus.status == "requires_action":
+            print(runStatus.status, '.....')
+            print("Status: ", "requires_action")
+            show_json("submit_tool_outputs", runStatus.required_action)
+            if runStatus.required_action.submit_tool_outputs and runStatus.required_action.submit_tool_outputs.tool_calls:
+                print("toolCalls present:")
+                toolCalls = runStatus.required_action.submit_tool_outputs.tool_calls
+
+                tool_outputs = []
+                for toolcall in toolCalls:
+                    function_name = toolcall.function.name
+                    function_args = json.loads(toolcall.function.arguments)
+
+                    if function_name in available_functions:
+
+                        function_to_call = available_functions[function_name]
+                        print(function_to_call, function_to_call.__name__ == "get_financial_statements",
+                              "==========================")
+
+                        if function_to_call.__name__ == "get_financial_statements":
+
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+
+                            )
+
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response
+                            })
+
+                        elif function_to_call.__name__ == "get_financial_ratios":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+                        elif function_to_call.__name__ == "get_key_metrics":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+                        elif function_to_call.__name__ == "get_financial_growth":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+                        elif function_to_call.__name__ == "get_company_profile":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+                        elif function_to_call.__name__ == "get_income_statements":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+                        elif function_to_call.__name__ == "get_balance_sheet":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+                        elif function_to_call.__name__ == "get_cash_flow":
+                            response = function_to_call(
+                                symbol=function_args.get("symbol")
+                            )
+                            tool_outputs.append({
+                                "tool_call_id": toolcall.id,
+                                "output": response,
+                            })
+
+                print(tool_outputs, ">>>>>")
+                # Submit tool outputs and update the run
+                client.beta.threads.runs.submit_tool_outputs(
+                    thread_id=thread.id,
+                    run_id=run.id,
+                    tool_outputs=tool_outputs)
+
+        elif runStatus.status == "completed":
+            # List the messages to get the response
+            print("completed...........logic")
+            messages: list[ThreadMessage] = client.beta.threads.messages.list(
+                thread_id=thread.id)
+            asist_mess_4_run = [message for message in messages if message.run_id ==
+                                run.id and message.role == "assistant"]
+            # This is where we extract the messages
+            for message in asist_mess_4_run:
+                print("TYPE OF THE CONTENT RECEIVED", message.content[0].type)
+                if message.content[0].type == "text":
+                    st.session_state.conversation.append(
+                        {"role": "Assistant", "content": message.content[0].text.value})
+                    with st.chat_message("assistant"):
+                        st.write(message.content[0].text.value)
+                elif message.content[0].type == "image_file":
+                    image_file_id = message.content[0].image_file.file_id
+                    # Define a path to save the image
+                    image_save_path = f"./image_{image_file_id}.png"
+                    image_save_path = f"output_images/image_{image_file_id}.png"
+                    download_and_save_image(image_file_id, image_save_path)
+                    st.session_state.conversation.append(
+                        {"role": "Assistant", "content": image_save_path})
+                    with st.chat_message("assistant"):
+                        st.image(image_save_path)
+            break
+
+        elif run.status == "failed":
+            print("Run failed.")
+
+            break
+
+        elif run.status in ["in_progress", "queued"]:
+            print(f"Run is {run.status}. Waiting...")
+            time.sleep(5)  # Wait for 5 seconds before checking again
+
+        else:
+            print(f"Unexpected status: {run.status}")
+            break
+
+
